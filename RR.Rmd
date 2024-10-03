@@ -1,0 +1,136 @@
+---
+title: "R_Markdown"
+author: "Vedant"
+date: "2024-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+## Introduction 
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: (http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+Loading the Required Datasets and the dependencies:
+
+```{r cars}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(kernlab)
+library(rattle)
+library(corrplot)
+set.seed(1234)
+
+trainingData <- read.csv("pml-training.csv")
+testingData <- read.csv("pml-testing.csv")
+```
+
+The dimensions and valuable information about the nature of the columns present in the dataset can be determined using the code below:
+
+```{r check}
+dim(trainingData)
+str(trainingData)
+
+dim(testingData)
+str(testingData)
+
+```
+
+## Data Cleaning
+
+By running 'str()', it is observed that a major portion of the dataset constitutes 'NA' values as the data is unclean. Before we proceed to perform any exploratory analysis or run any machine learning algorithm, the data has to be cleaned. This is achieved by removing columns which do not provide any data (apart from NA values)
+
+```{r NA}
+trainingNA <- trainingData[,colMeans(is.na(trainingData)) < .9]
+dim(trainingNA)
+dim(trainingData)
+```
+
+It is observed that this one step has already removed approximately 65 columns from the training dataset. By observing the columns obtained in the previous step using the str() function, it is seen that the first 7 columns till 'num_window' only constitute the metadata and provide no useful information for the actual data. These columns are subsequently removed from the dataset. 
+
+```{r metadata}
+trainingMeta <- trainingNA[,-c(1:7)]
+dim(trainingMeta)
+
+```
+
+The 'zero-variance' variables are also subsequently removed:
+
+```{r zeroVar}
+nvz <- nearZeroVar(trainingMeta)
+trainingZV <- trainingMeta[,-nvz]
+dim(trainingZV)
+```
+
+This cleaned 'training' data set is subsequently split into a validation and a proper training case in order to apply the required machine learning algorithms. It is split in a 70-30 ratio. 
+
+```{r split}
+inTrain <- createDataPartition(y=trainingZV$classe, p=0.7, list=F)
+training <- trainingZV[inTrain,]
+validation <- trainingZV[-inTrain,]
+
+dim(training)
+dim(validation)
+```
+
+## Results
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. (Setting up the control for 3-fold cross-validation)
+
+```{r control}
+control <- trainControl(method="cv", number=3, verboseIter=F)
+```
+
+Before implementing any known model, exploratory analysis is carried out in the form of a correlation matrix to detewrmine the relative correlation between the variables used to predict in the dataset.
+
+```{r exploratory}
+library(caret)
+corrPlot <- cor(training[, -length(names(training))])
+corrplot(corrPlot, method="square", type="upper", tl.col="Black", col = colorRampPalette(c("purple", "white", "green"))(200), shade.col="blue")
+```
+
+The predictions obtained between two ML algorithms; decision trees and SVM; will be compared to determine the best algorithm to make predictions of the dataset.
+
+### Decision Trees:
+
+A decision tree is a popular machine learning algorithm used for both classification and regression tasks. It works by recursively splitting the dataset into subsets based on feature values, creating a tree-like structure where each internal node represents a feature, each branch represents a decision based on that feature, and each leaf node represents the output (a class label for classification or a value for regression). It is easy to understand, handles non-linear data and does not require data scaling or normalization. However, it is prone to over-fitting, and has an inherent bias towards dominant features. 
+
+The decision tree is plotted as shown below
+```{r tree}
+library(rpart)
+library(rpart.plot)
+dec_trees <- train(classe~., data=training, method="rpart", trControl = control, tuneLength = 5)
+rpart.plot(dec_trees$finalModel, type = 3, extra = 104, under = TRUE, fallen.leaves = TRUE)
+```
+
+The statistical predictions and the confusion matrix made by the decision tree on the validation data can be obtained using the code below:
+```{r tree_pred}
+dec_trees_pred <- predict(dec_trees, validation)
+trees_pred <- confusionMatrix(dec_trees_pred, factor(validation$classe))
+trees_pred
+```
+The accuracy, 95th percentile confidence interval, P-value and other parameters are shown. Other features such as the sensitivity (true positive rate), the specificity, positive predicted value for each of the classes can be obtained. It is observed that the model most accurately predicts class A (highest sensitivity). It means that the model is correctly able to identify the true positives from the data belonging to class A. However, the ability of the model to correctly identify negative cases is low for class A compared to the other classes. 
+
+### SVM
+
+Support Vector Machine (SVM) is a powerful and popular machine learning algorithm primarily used for classification, but it can also be applied to regression and outlier detection. The core idea behind SVM is to find the best boundary, called a hyperplane, that separates different classes of data points in such a way that the margin between the classes is maximized. Support Vector Machines are highly flexible and powerful machine learning algorithms that excel at classification tasks and can handle complex, non-linear relationships through kernel methods. Although they require careful tuning and can be computationally expensive, they are widely used due to their ability to create well-defined decision boundaries and generalize well to unseen data.
+
+```{r SVM}
+SVM <- train(classe~., data=training, method="svmLinear", trControl = control, tuneLength = 5, verbose = F)
+SVM_Predictions <- predict(SVM, validation)
+Pred_SVN <- confusionMatrix(SVM_Predictions, factor(validation$classe))
+Pred_SVN
+```
+
+Compared to Decision trees, it is observed that support vector machining provides superior statistic parameters across the prediction of almost all the classes and is subsequently chosen as the prediction algorithm to predict the classes in the test data.
+
+## Test Data Predictions
+
+```{r test}
+Test_Predictions <- predict(SVM, testingData)
+print(Test_Predictions)
+```
+It is seen to correctly predict the classe (5 levels) outcome for 20 casses with the SVM model. 
